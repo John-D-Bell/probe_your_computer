@@ -1,0 +1,169 @@
+#!/bin/sh
+
+##	probe_esr_system  -  a Bourne shell script to examine the innards
+##	of a computer (nominally ESR's main box) to determine its hardware
+##	and OS-config characteristics, prior to an upgrade.
+##	
+##	Created 16-27 Oct 2014 by John D. Bell	(jdb@systemsartisans.com)
+##
+##	**  PUBLIC DOMAIN  **  ("Do what thou wilt shall be the whole of the Law")
+##	
+
+
+Eecho  () { echo "$@" 1>&2 ;}
+Perform () { eval $vErBoSe && echo "++ $@" ; eval $dOiT && eval "$@" && echo ;}
+
+
+Usage () {
+    cat 1>&2 << 'EOF'
+
+This script will report on various hardware and software configurations
+of the computer it is run on, so that it can be duplicated or upgraded.
+
+It does _not_ need to run as "root" (and in fact, will complain and exit
+if you try), and should not divulge any security-sensitive information.
+
+Please audit this code!  No warranties, expressed or implied.
+
+Options:
+
+-n	  just list what would be done (instead of doing it)
+-o file	  redirect output to "file"
+-p	  actually do the indicated tasks
+-v	  run less verbose
+
+ all other options (or no options) show this message
+
+EOF
+}
+
+
+gOaHeAd=false;	export gOaHeAd	# "-p" flag sets gOaHeAd to true
+dOiT=true;	export dOiT	# "-n" flag sets dOiT to false
+vErBoSe=true;	export vErBoSe	# "-v" flag sets vErBoSe to false
+
+# # ``standard'' temporary file foo
+# TMPF=/tmp/`basename $0`.$$
+# trap '/bin/rm -f $TMPF' 0
+# trap '/bin/rm -f $TMPF;exit' 1 2 3 15
+
+
+## ~~~~~~~~~~  MAIN  ~~~~~~~~~~  ##
+
+while getopts no:pv Option ; do
+    case ${Option} in		#  (((((  vi showmatch support
+	n)	dOiT=false
+		gOaHeAd=true
+		;;
+	o)	exec 1>${OPTARG}
+		;;
+	p)	gOaHeAd=true
+		;;
+	v)	vErBoSe=false
+		;;
+	*)	Eecho "$0: Usage: "
+		Usage 
+		exit 1
+		;;
+    esac
+done
+shift `expr ${OPTIND} - 1`
+
+
+if id | grep 'uid=0(root)' >/dev/null ; then
+    Eecho "$0: _Please_ don't run me as root!"
+    exit 255
+fi
+
+if ! $gOaHeAd ; then
+    Usage
+    exit 1
+fi
+
+##  
+##  Assumptions:  this is some kind of Linux box, so [1] we have the GNU
+##  toolset (specifically, the options thereunto), [2] it uses some Linuxy
+##  type of package management tool (look for 'dpkg', 'rpm', etc., whine if
+##  none found)
+
+
+## Step 1 - who's running me on what box; who else is (or could be) on
+Perform hostname
+Perform id
+Perform w
+  #  want __JUST__ usernames && UIDs/GIDs
+Perform cat /etc/passwd	
+Perform cat /etc/group
+
+
+## Step 2 - what version/flavour of Linux are we running? (use redundant
+## tests, in case stuff is buggered up)  Also, try to figure out what
+## packages (or at least, runnable commands) are installed
+Perform uname -a
+Perform lsb_release -a
+Perform cat /etc/issue
+if [ -f /etc/debian_version ] ; then
+    Perform cat /etc/debian_version
+    LIST_INSTALLED_PKGS='dpkg -l '
+elif [ -f /etc/redhat-release ] ; then
+    Perform cat /etc/redhat-release
+    LIST_INSTALLED_PKGS='rpm -qa '
+elif [ -f /etc/gentoo-release ] ; then
+    Perform cat /etc/gentoo-release
+    LIST_INSTALLED_PKGS='emerge -e world '
+elif type -p pacman >/dev/null ; then
+    Perform echo "It's an Arch Linux derivative"
+    LIST_INSTALLED_PKGS='pacman -Q '
+elif type -p zypper >/dev/null ; then
+    Perform echo "It's an SUSE derivative"
+    LIST_INSTALLED_PKGS='rpm -qa '
+else
+    Eecho "Can't figure out what flavor distro this is!"
+    LIST_INSTALLED_PKGS='( for D in $(echo $PATH|tr : ' ');do ls -1 $D;done|sort -u ) '
+fi
+
+
+## Step 3 - see what kind of CPU and memory we've got; see what kind of buses
+## we've got
+Perform cat /proc/cpuinfo
+Perform cat /proc/meminfo
+Perform lspci -vv
+
+
+## Step 4 - see how many disks, where they are mounted,
+## is RAID being used, and how full they are....
+   # hard disks
+Perform ls -ld /dev/sd? /dev/sd?? /dev/hd? /dev/hd?? 2>/dev/null
+   # CD / DVD
+Perform ls -ld /dev/sr? /dev/sr?? 2>/dev/null
+   # LVM?
+Perform ls -l /dev/mapper 2>/dev/null
+Perform 'mount|egrep "/dev/[sh]d|/dev/mapper/"'
+   # software RAID?
+Perform ls -l /dev/md* 2>/dev/null
+   # OK, look at disk hardware
+Perform cat /proc/ide/*/* 2>/dev/null
+Perform cat /proc/scsi/scsi 2>/dev/null
+   # Where are they mounted?
+Perform cat /etc/fstab
+Perform mount
+   # How full are they?
+Perform df -h
+
+
+## Step 5 - check the network configuration
+Perform ifconfig -a
+for IP in $(ifconfig -a|awk -F: '/inet addr/ { print $2 }'|sed 's/ .*$//') ; do
+    Perform nslookup $IP
+done
+   # I'm really only interested in the first few hops (to your ISP)
+Perform traceroute 8.8.8.8
+
+
+## Step 6 - list the installed packages
+Perform $LIST_INSTALLED_PKGS
+Perform 'echo $PATH | tr : \\012'
+
+
+
+exit 0
