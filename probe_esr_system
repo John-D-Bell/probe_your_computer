@@ -153,11 +153,24 @@ Perform df -h
 
 ## Step 5 - check the network configuration
 Perform ifconfig -a
+   # NOTE - the next two commands _might_ be considered too revealing about
+   #        the local network neighborhood - EDIT RESULTS AS NECESSARY
+Perform cat /etc/resolv.conf
+Perform cat /etc/hosts
+   # figure out your nameserver(s)
+Perform 'nm-tool 2>/dev/null|grep -i dns'
+   # Are we running DHCP?  (stole this from i3-bar config script! Probably
+   # Ubuntu-only)
+Perform '[ -f "/run/sendsigs.omit.d/network-manager.dhclient-eth0.pid" ] && echo "Running DHCP"'
+   # what are our local names
 for IP in $(ifconfig -a|awk -F: '/inet addr/ { print $2 }'|sed 's/ .*$//') ; do
     Perform nslookup $IP
 done
    # I'm really only interested in the first few hops (to your ISP)
 Perform traceroute 8.8.8.8
+   # Where are we getting time info from? (NTP config)
+Perform cat /etc/ntp.conf 2>/dev/null
+Perform cat /etc/default/ntpdate 2>/dev/null
 
 
 ## Step 6 - list the installed packages
